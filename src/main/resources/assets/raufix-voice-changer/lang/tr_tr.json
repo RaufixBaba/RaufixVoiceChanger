@@ -2,6 +2,7 @@
   "key.category.raufix-voice-changer.voice_changer": "Raufix Ses Değiştirici (V1 Beta)",
   "key.raufixvc.open_picker": "Tüm Sesler Seçme Sayfasını Aç",
   "key.raufixvc.open_studio": "Raufix Ses Stüdyosunu Aç",
+  "key.raufixvc.self_listen": "Kendini Dinlemeyi Aç / Kapat",
   "key.raufixvc.toggle": "Ses Değiştiriciyi Aç / Kapat",
   "raufixvc.actionbar.disabled": "✦ Raufix Ses Değiştirici: KAPALI",
   "raufixvc.actionbar.enabled": "✦ Raufix Ses Değiştirici: AÇIK • [%s]",
