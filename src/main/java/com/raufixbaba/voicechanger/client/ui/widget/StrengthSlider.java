@@ -1,15 +1,12 @@
 package com.raufixbaba.voicechanger.client.ui.widget;
 
-import com.raufixbaba.voicechanger.client.MinecraftTextAccess;
 import com.raufixbaba.voicechanger.client.i18n.RaufixI18n;
-import com.raufixbaba.voicechanger.client.theme.RaufixTheme;
 import java.util.function.IntConsumer;
 import java.util.function.IntSupplier;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
 /**
@@ -21,16 +18,24 @@ public final class StrengthSlider extends AbstractSliderButton {
     private final IntSupplier valueSupplier;
     private final IntConsumer valueConsumer;
     private boolean valueOnly;
+    private boolean dragging;
 
     public StrengthSlider(int x, int y, int width, int height, IntSupplier valueSupplier, IntConsumer valueConsumer) {
         super(x, y, width, height, RaufixI18n.tr(LABEL_KEY), 0.0D);
         this.valueSupplier = valueSupplier;
         this.valueConsumer = valueConsumer;
         setTooltip(Tooltip.create(RaufixI18n.tr(LABEL_KEY + ".desc")));
-        refresh();
+        forceRefresh();
     }
 
     public void refresh() {
+        if (this.dragging) {
+            return;
+        }
+        forceRefresh();
+    }
+
+    private void forceRefresh() {
         this.value = Math.max(0.0D, Math.min(1.0D, this.valueSupplier.getAsInt() / 100.0D));
         updateMessage();
     }
@@ -39,6 +44,24 @@ public final class StrengthSlider extends AbstractSliderButton {
         this.valueOnly = true;
         updateMessage();
         return this;
+    }
+
+    @Override
+    public void onClick(MouseButtonEvent event, boolean doubleClick) {
+        this.dragging = true;
+        super.onClick(event, doubleClick);
+    }
+
+    @Override
+    protected void onDrag(MouseButtonEvent event, double dragX, double dragY) {
+        this.dragging = true;
+        super.onDrag(event, dragX, dragY);
+    }
+
+    @Override
+    public void onRelease(MouseButtonEvent event) {
+        this.dragging = false;
+        super.onRelease(event);
     }
 
     @Override

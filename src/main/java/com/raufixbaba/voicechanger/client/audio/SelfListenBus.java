@@ -97,4 +97,27 @@ public final class SelfListenBus {
         this.available -= count;
         return count;
     }
+
+    /**
+     * Atomically drains a complete frame of {@code destination.length} samples,
+     * returning {@code false} until a full frame is buffered so OpenAL speakers
+     * never receive partial sub-frames.
+     */
+    public synchronized boolean readFullFrame(short[] destination) {
+        if (this.available < destination.length) {
+            return false;
+        }
+        for (int i = 0; i < destination.length; i++) {
+            destination[i] = this.buffer[this.readIndex];
+            this.readIndex = this.readIndex + 1 >= CAPACITY ? 0 : this.readIndex + 1;
+        }
+        this.available -= destination.length;
+        return true;
+    }
+
+    public synchronized void clear() {
+        this.writeIndex = 0;
+        this.readIndex = 0;
+        this.available = 0;
+    }
 }

@@ -372,7 +372,10 @@ public final class VocalPitchShifter {
     private void matchEnergy(double inputEnergy) {
         double outputEnergy = computeEnergy(this.shiftedMagnitude);
         if (outputEnergy > 1.0e-12 && inputEnergy > 1.0e-12) {
-            float instantGain = (float) Math.sqrt(inputEnergy / outputEnergy);
+            float upwardCoherenceComp = this.pitchRatio > 1.0f
+                    ? (float) Math.pow(this.pitchRatio, 0.45)
+                    : 1.0f;
+            float instantGain = (float) Math.sqrt(inputEnergy / outputEnergy) * upwardCoherenceComp;
             instantGain = Math.max(MIN_GAIN_CORRECTION, Math.min(MAX_GAIN_CORRECTION, instantGain));
             this.smoothedGainCorrection += GAIN_CORRECTION_SMOOTHING * (instantGain - this.smoothedGainCorrection);
         }
@@ -409,8 +412,20 @@ public final class VocalPitchShifter {
     private void overlapAdd(float[] outBlock) {
         this.fft.inverse(this.spectrum);
 
+        boolean corrupted = false;
         for (int i = 0; i < this.fftSize; i++) {
-            this.outputAccumulator[i] += this.analysisWindow[i] * this.spectrum[2 * i] * this.overlapAddScale;
+            float sample = this.analysisWindow[i] * this.spectrum[2 * i] * this.overlapAddScale;
+            if (!Float.isFinite(sample)) {
+                corrupted = true;
+                break;
+            }
+            this.outputAccumulator[i] += sample;
+        }
+
+        if (corrupted) {
+            reset();
+            Arrays.fill(outBlock, 0, this.stepSize, 0f);
+            return;
         }
 
         System.arraycopy(this.outputAccumulator, 0, outBlock, 0, this.stepSize);

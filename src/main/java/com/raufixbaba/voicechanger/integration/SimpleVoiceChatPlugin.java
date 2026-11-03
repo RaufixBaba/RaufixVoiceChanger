@@ -1,14 +1,14 @@
 package com.raufixbaba.voicechanger.integration;
 
-import net.fabricmc.api.EnvType;
-import net.fabricmc.loader.api.FabricLoader;
-import de.maxhenkel.voicechat.api.VoicechatPlugin;
-import de.maxhenkel.voicechat.api.events.ClientSoundEvent;
-import de.maxhenkel.voicechat.api.events.EventRegistration;
 import com.raufixbaba.voicechanger.RaufixVoiceChanger;
 import com.raufixbaba.voicechanger.client.VoiceChangerController;
-import com.raufixbaba.voicechanger.client.audio.SimpleVoiceChatAudioProcessor;
 import com.raufixbaba.voicechanger.client.audio.SimpleVoiceChatAudioProcessor.ProcessingResult;
+import de.maxhenkel.voicechat.api.VoicechatPlugin;
+import de.maxhenkel.voicechat.api.events.ClientSoundEvent;
+import de.maxhenkel.voicechat.api.events.ClientVoicechatConnectionEvent;
+import de.maxhenkel.voicechat.api.events.EventRegistration;
+import net.fabricmc.api.EnvType;
+import net.fabricmc.loader.api.FabricLoader;
 
 public final class SimpleVoiceChatPlugin implements VoicechatPlugin {
     private static final int AUDIO_PROCESSING_PRIORITY = 100;
@@ -18,11 +18,6 @@ public final class SimpleVoiceChatPlugin implements VoicechatPlugin {
         return RaufixVoiceChanger.PLUGIN_ID;
     }
 
-    /**
-     * The only event here is a client one, and the mod now installs on servers
-     * too, so a dedicated server is left with nothing registered rather than
-     * with a handler for something that can never fire there.
-     */
     @Override
     public void registerEvents(EventRegistration registration) {
         if (!isClient()) {
@@ -34,12 +29,24 @@ public final class SimpleVoiceChatPlugin implements VoicechatPlugin {
                 this::onClientSound,
                 AUDIO_PROCESSING_PRIORITY
         );
-        RaufixVoiceChanger.LOGGER.info("Registered the Simple Voice Chat audio processor");
+        registration.registerEvent(
+                ClientVoicechatConnectionEvent.class,
+                this::onConnectionChanged,
+                0
+        );
+        RaufixVoiceChanger.LOGGER.info("Registered the Raufix Simple Voice Chat OpenAL audio processor");
     }
 
     private static boolean isClient() {
         return FabricLoader.getInstance().getEnvironmentType() == EnvType.CLIENT;
-        // Minecraft 26's loader turned this field into an accessor.
+    }
+
+    private void onConnectionChanged(ClientVoicechatConnectionEvent event) {
+        // Release any offline self-listen mic immediately so the server's MicThread owns MICROPHONE_LOCK cleanly.
+        OpenAlAudioBridge.releaseActiveOfflineMic();
+        if (VoiceChangerController.INSTANCE.isInitialized()) {
+            VoiceChangerController.INSTANCE.getAudioProcessor().reset();
+        }
     }
 
     private void onClientSound(ClientSoundEvent event) {
@@ -61,22 +68,16 @@ public final class SimpleVoiceChatPlugin implements VoicechatPlugin {
         }
 
         short[] rawAudio = event.getRawAudio();
-        if (rawAudio.length == 0) {
+        if (rawAudio == null || rawAudio.length == 0) {
             return;
         }
 
-        // The microphone thread already swapped in the AI voice. It goes out
-        // as it is, unless another mod holds an override such as a radio,
-        // which still applies on top through the usual path below.
         if (controller.isAiVoiceActive() && controller.api().winningOverrideOwner() == null) {
             controller.getAudioProcessor().countAiFrame(rawAudio.length);
             controller.publishAiFrame(rawAudio);
             return;
         }
 
-        // Copied only when something is going to change it, which is the
-        // effective answer rather than the player's switch: a mod holding an
-        // override can have the voice changed with that switch off.
         short[] output = controller.isEffectActive()
                 ? rawAudio.clone()
                 : rawAudio;

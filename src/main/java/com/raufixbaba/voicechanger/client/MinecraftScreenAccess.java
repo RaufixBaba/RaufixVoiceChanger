@@ -8,10 +8,12 @@ public final class MinecraftScreenAccess {
     }
 
     public static Screen current(Minecraft client) {
-        return client.screen;
+        return client == null ? null : client.screen;
     }
 
     public static void show(Minecraft client, Screen screen) {
-        client.setScreen(screen);
+        if (client != null) {
+            client.setScreen(screen);
+        }
     }
 }

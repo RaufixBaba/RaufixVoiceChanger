@@ -1,13 +1,13 @@
 package com.raufixbaba.voicechanger.mixin;
 
-import de.maxhenkel.voicechat.gui.VoiceChatSettingsScreen;
-import de.maxhenkel.voicechat.voice.client.MicThread;
-import net.minecraft.client.Minecraft;
 import com.raufixbaba.voicechanger.RaufixVoiceChanger;
 import com.raufixbaba.voicechanger.client.MinecraftScreenAccess;
 import com.raufixbaba.voicechanger.client.VoiceChangerController;
 import com.raufixbaba.voicechanger.client.ai.audio.AudioFrames;
 import com.raufixbaba.voicechanger.client.audio.SimpleVoiceChatAudioProcessor;
+import de.maxhenkel.voicechat.gui.VoiceChatSettingsScreen;
+import de.maxhenkel.voicechat.voice.client.MicThread;
+import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -27,13 +27,6 @@ public abstract class MicThreadMixin {
     @Unique
     private static boolean hasLoggedMicTestFailure;
 
-    /**
-     * Every tick ends in {@code sendAudio}, with the microphone frame when the
-     * player is talking and {@code null} when not, and that one argument is
-     * all the AI voice needs: what it hands back is what gets sent, including
-     * the end of a phrase after the key is let go. Unchanged while the AI
-     * voice is off.
-     */
     @ModifyVariable(method = "sendAudio", at = @At("HEAD"), argsOnly = true, ordinal = 0, require = 0)
     private short[] raufixvc$routeThroughAiVoice(short[] rawAudio) {
         VoiceChangerController controller = VoiceChangerController.INSTANCE;
@@ -46,6 +39,14 @@ public abstract class MicThreadMixin {
             CallbackInfoReturnable<short[]> callbackInfo
     ) {
         if (!forceProcessing) {
+            // Live server MicThread poll: tap untransmitted mic frames for OpenAL self-listen & studio meters
+            // without ever locking or opening a second microphone!
+            short[] samples = callbackInfo.getReturnValue();
+            VoiceChangerController controller = VoiceChangerController.INSTANCE;
+            if (samples != null && samples.length > 0 && controller.isInitialized()) {
+                boolean willTransmit = ((MicThread) (Object) this).shouldTransmitAudio();
+                controller.onLiveMicPoll(samples, willTransmit);
+            }
             return;
         }
 
@@ -79,8 +80,6 @@ public abstract class MicThreadMixin {
             activeMicTestThreadId = currentThreadId;
         }
 
-        // With the AI voice on, the test plays the AI preview, which is what
-        // other players would hear; the effects are not in use then.
         if (controller.isAiVoiceActive() && samples.length == AudioFrames.FRAME_SAMPLES) {
             short[] converted = controller.aiVoice().previewFrame(samples);
             callbackInfo.setReturnValue(converted != null ? converted : AudioFrames.silence());

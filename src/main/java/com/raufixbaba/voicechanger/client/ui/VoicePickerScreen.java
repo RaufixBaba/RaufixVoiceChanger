@@ -13,6 +13,7 @@ import com.raufixbaba.voicechanger.client.ui.compat.StudioGraphics;
 import com.raufixbaba.voicechanger.client.ui.widget.NeonButton;
 import com.raufixbaba.voicechanger.client.ui.widget.StrengthSlider;
 import com.raufixbaba.voicechanger.client.ui.widget.VoiceCardButton;
+import com.raufixbaba.voicechanger.integration.OpenAlAudioBridge;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,10 +25,8 @@ import net.minecraft.network.chat.Component;
 
 /**
  * Dedicated 1-Click All-Voices Selection Page ("Bütün Seslerin Olduğu Seçme Sayfası")
- * for Raufix Voice Changer V1.0 BETA.
- *
- * <p>Replaces tedious one-by-one button cycling with an animated RGB category-filtered,
- * searchable 2-column voice gallery with live self-listen preview.</p>
+ * for Raufix Voice Changer V1.0 BETA — now featuring 26 Studio Voices + 1-Tap Normal Voice
+ * card, touch/mouse scrollbar dragging, and OpenAL live self-listen preview.
  */
 public final class VoicePickerScreen extends CompatScreen {
     private static final int FILTER_BAR_HEIGHT = 48;
@@ -65,6 +64,8 @@ public final class VoicePickerScreen extends CompatScreen {
     private NeonButton enableButton;
     private NeonButton selfListenButton;
     private NeonButton closeOnPickButton;
+    private NeonButton scrollUpBtn;
+    private NeonButton scrollDownBtn;
     private StrengthSlider strengthSlider;
     private int gridLeft;
     private int gridWidth;
@@ -85,7 +86,6 @@ public final class VoicePickerScreen extends CompatScreen {
         clearWidgets();
         this.cardScroll.clear();
 
-        // Top Navigation Chrome + Language/Theme pills
         StudioFrame.addTabs(
                 StudioTabs.of(StudioTabs.Tab.VOICE_PICKER,
                         tab -> StudioTabs.navigate(tab, StudioTabs.Tab.VOICE_PICKER, this.parent, this.addon)),
@@ -101,10 +101,11 @@ public final class VoicePickerScreen extends CompatScreen {
         int filterRowY = StudioFrame.HEADER_HEIGHT + 5;
         buildCategoryFilterRow(filterRowY);
 
-        // Row 2 of Filter Bar: Live Search Box + [Seçince Kapat] toggle
+        // Row 2 of Filter Bar: Live Search Box + [▲][▼] touch scroll + [Seçince Kapat] toggle
         int searchRowY = filterRowY + 21;
-        int closeToggleW = Math.min(148, Math.max(108, this.gridWidth / 3));
-        int searchW = Math.max(90, this.gridWidth - closeToggleW - 6);
+        int navBtnsW = 42;
+        int closeToggleW = Math.min(138, Math.max(96, this.gridWidth / 3));
+        int searchW = Math.max(80, this.gridWidth - closeToggleW - navBtnsW - 10);
 
         this.searchBox = new EditBox(this.font, this.gridLeft, searchRowY, searchW, 18,
                 RaufixI18n.tr("raufixvc.picker.search"));
@@ -119,8 +120,17 @@ public final class VoicePickerScreen extends CompatScreen {
         });
         addRenderableWidget(this.searchBox);
 
+        int navX = this.gridLeft + searchW + 4;
+        this.scrollUpBtn = new NeonButton(navX, searchRowY, 19, 18, Component.literal("▲"),
+                btn -> this.cardScroll.scrollBy(-(CARD_HEIGHT + CARD_GAP_Y) * 2));
+        addRenderableWidget(this.scrollUpBtn);
+
+        this.scrollDownBtn = new NeonButton(navX + 21, searchRowY, 19, 18, Component.literal("▼"),
+                btn -> this.cardScroll.scrollBy((CARD_HEIGHT + CARD_GAP_Y) * 2));
+        addRenderableWidget(this.scrollDownBtn);
+
         this.closeOnPickButton = new NeonButton(
-                this.gridLeft + searchW + 6, searchRowY, closeToggleW, 18,
+                this.gridLeft + this.gridWidth - closeToggleW, searchRowY, closeToggleW, 18,
                 Component.empty(),
                 btn -> {
                     if (this.addon.uiConfig() != null) {
@@ -184,7 +194,7 @@ public final class VoicePickerScreen extends CompatScreen {
         this.visibleCardCount = specs.size();
 
         int cols = this.gridWidth >= 340 ? 2 : 1;
-        int cardW = cols == 2 ? (this.gridWidth - CARD_GAP_X - 8) / 2 : (this.gridWidth - 8);
+        int cardW = cols == 2 ? (this.gridWidth - CARD_GAP_X - 10) / 2 : (this.gridWidth - 10);
         int startY = this.listTopY + 4;
 
         for (int i = 0; i < specs.size(); i++) {
@@ -203,7 +213,7 @@ public final class VoicePickerScreen extends CompatScreen {
                     spec.selected()::get,
                     () -> {
                         spec.onPick().run();
-                        if (!this.addon.isEffectEnabled() && this.addon.isAllowedByServer()) {
+                        if (spec.autoEnable() && !this.addon.isEffectEnabled() && this.addon.isAllowedByServer()) {
                             this.addon.setEnabled(true);
                         }
                         refreshControlLabels();
@@ -226,7 +236,25 @@ public final class VoicePickerScreen extends CompatScreen {
         List<CardSpec> results = new ArrayList<>();
         String needle = this.searchQuery == null ? "" : this.searchQuery.trim().toLowerCase(Locale.ROOT);
 
-        // Built-in 22 studio-tuned presets
+        // 0. 1-Tap "Normal Voice (Bypass / Off)" card at top of ALL & NATURAL
+        if (activeFilter == FilterTab.ALL || activeFilter == FilterTab.NATURAL) {
+            Component normalTitle = RaufixI18n.tr("raufixvc.preset.normal_off");
+            Component normalDesc = RaufixI18n.tr("raufixvc.preset.normal_off.desc");
+            if (matchesSearch(needle, normalTitle.getString(), normalDesc.getString(), "normal off kapat")) {
+                results.add(new CardSpec(
+                        normalTitle,
+                        normalDesc,
+                        0xFF8FA0C8,
+                        false,
+                        true,
+                        false,
+                        () -> !this.addon.isEffectEnabled(),
+                        () -> this.addon.setEnabled(false)
+                ));
+            }
+        }
+
+        // 1. Built-in 26 studio-tuned presets
         if (activeFilter != FilterTab.SAVED) {
             for (VoiceChangerPreset preset : VoiceChangerPreset.selectablePresets()) {
                 if (activeFilter.category != null && preset.category() != activeFilter.category) {
@@ -245,7 +273,10 @@ public final class VoicePickerScreen extends CompatScreen {
                         preset.category().accentColor(),
                         preset.isNewInV1(),
                         allowed,
-                        () -> this.addon.getSelectedPreset() == preset && !this.addon.aiVoice().isSelected(),
+                        true,
+                        () -> this.addon.isEffectEnabled()
+                                && this.addon.getSelectedPreset() == preset
+                                && !this.addon.aiVoice().isSelected(),
                         () -> {
                             this.addon.updateAiSettings(s -> s.withSelected(false));
                             this.addon.applyBuiltInPreset(preset);
@@ -254,7 +285,7 @@ public final class VoicePickerScreen extends CompatScreen {
             }
         }
 
-        // Personal saved presets & Server shared / API contributed presets
+        // 2. Personal saved presets & Server shared / API contributed presets
         if (activeFilter == FilterTab.ALL || activeFilter == FilterTab.SAVED) {
             for (VoicePreset shared : this.addon.api().contributedPresets().all()) {
                 Component title = shared.displayName();
@@ -269,7 +300,9 @@ public final class VoicePickerScreen extends CompatScreen {
                         0xFF38EF7D,
                         false,
                         allowed,
-                        () -> shared.id().equals(this.addon.getSelectedContributedVoiceId()),
+                        true,
+                        () -> this.addon.isEffectEnabled()
+                                && shared.id().equals(this.addon.getSelectedContributedVoiceId()),
                         () -> {
                             this.addon.updateAiSettings(s -> s.withSelected(false));
                             this.addon.applyContributedPreset(shared);
@@ -290,7 +323,9 @@ public final class VoicePickerScreen extends CompatScreen {
                             0xFFFFB84D,
                             false,
                             true,
-                            () -> savedName.equalsIgnoreCase(String.valueOf(this.addon.getSelectedSavedPresetName())),
+                            true,
+                            () -> this.addon.isEffectEnabled()
+                                    && savedName.equalsIgnoreCase(String.valueOf(this.addon.getSelectedSavedPresetName())),
                             () -> {
                                 try {
                                     this.addon.updateAiSettings(s -> s.withSelected(false));
@@ -335,7 +370,15 @@ public final class VoicePickerScreen extends CompatScreen {
         x += toggleW + gap;
 
         this.selfListenButton = new NeonButton(x, y, listenW, 20, Component.empty(), btn -> {
-            this.addon.setSelfListenEnabled(!this.addon.isSelfListenEnabled());
+            boolean next = !this.addon.isSelfListenEnabled();
+            if (next) {
+                // If user accidentally disabled SVC speaker, re-enable so OpenAL monitor is heard clearly
+                OpenAlAudioBridge.SvcStatus st = OpenAlAudioBridge.snapshotStatus();
+                if (st.disabled() && !st.forceDisabled()) {
+                    OpenAlAudioBridge.setVoiceChatEnabled(true);
+                }
+            }
+            this.addon.setSelfListenEnabled(next);
             refreshControlLabels();
         });
         this.selfListenButton.setTooltip(Tooltip.create(RaufixI18n.tr("raufixvc.studio.self_listen.desc")));
@@ -343,9 +386,11 @@ public final class VoicePickerScreen extends CompatScreen {
         x += listenW + gap;
 
         this.strengthSlider = new StrengthSlider(x, y, sliderW, 20,
-                this.addon::getStrength, this.addon::setStrength);
+                this.addon::getStrength, val -> {
+                    this.addon.setStrength(val);
+                    refreshControlLabels();
+                });
         addRenderableWidget(this.strengthSlider);
-        x += sliderW + gap + (meterReserve > 0 ? meterReserve + gap : 0);
 
         NeonButton doneBtn = new NeonButton(this.gridLeft + this.gridWidth - doneW, y, doneW, 20,
                 RaufixI18n.tr("raufixvc.ui.done"), btn -> onClose())
@@ -372,6 +417,13 @@ public final class VoicePickerScreen extends CompatScreen {
                     autoClose ? "raufixvc.picker.auto_close.on" : "raufixvc.picker.auto_close.off"));
             this.closeOnPickButton.style(autoClose ? NeonButton.Style.ACTIVE_ON : NeonButton.Style.DEFAULT);
         }
+        boolean scrollable = this.cardScroll.isScrollable();
+        if (this.scrollUpBtn != null) {
+            this.scrollUpBtn.active = scrollable;
+        }
+        if (this.scrollDownBtn != null) {
+            this.scrollDownBtn.active = scrollable;
+        }
         if (this.strengthSlider != null) {
             this.strengthSlider.refresh();
         }
@@ -389,6 +441,21 @@ public final class VoicePickerScreen extends CompatScreen {
             return true;
         }
         return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+    }
+
+    @Override
+    protected boolean onScrollBarClicked(double mouseX, double mouseY, int button) {
+        return this.cardScroll.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    protected boolean onScrollBarDragged(double mouseX, double mouseY, int button, double dragY) {
+        return this.cardScroll.mouseDragged(mouseX, mouseY, button, dragY);
+    }
+
+    @Override
+    protected boolean onScrollBarReleased(double mouseX, double mouseY, int button) {
+        return this.cardScroll.mouseReleased(mouseX, mouseY, button);
     }
 
     @Override
@@ -413,7 +480,7 @@ public final class VoicePickerScreen extends CompatScreen {
         graphics.drawRgbGradientBar(this.gridLeft, this.listTopY - 2, this.gridWidth, 1, 0.55f, 0.2f);
         graphics.drawRgbGradientBar(0, this.listBottomY, this.width, 2, 0.85f, 0.45f);
 
-        this.cardScroll.renderScrollbar(graphics, this.gridLeft + this.gridWidth - 4);
+        this.cardScroll.renderScrollbar(graphics, this.gridLeft + this.gridWidth - 5);
 
         if (this.visibleCardCount == 0) {
             graphics.centeredText(
@@ -424,7 +491,6 @@ public final class VoicePickerScreen extends CompatScreen {
             );
         }
 
-        // Mini RGB Live Spectrum Visualizer in footer when wide enough
         if (this.gridWidth >= 440) {
             int footerY = this.height - PICKER_FOOTER_HEIGHT + (PICKER_FOOTER_HEIGHT - 20) / 2;
             int doneW = 68;
@@ -437,7 +503,9 @@ public final class VoicePickerScreen extends CompatScreen {
 
     @Override
     public void onClose() {
-        this.addon.setSelfListenEnabled(false);
+        if (this.parent == null && this.addon.isSelfListenEnabled()) {
+            ClientScreens.sendActionBarMessage(RaufixI18n.tr("raufixvc.actionbar.self_listen_on"));
+        }
         ClientScreens.open(this.parent);
     }
 
@@ -451,6 +519,7 @@ public final class VoicePickerScreen extends CompatScreen {
             int accentColor,
             boolean isNew,
             boolean allowed,
+            boolean autoEnable,
             BoolQuery selected,
             Runnable onPick
     ) {

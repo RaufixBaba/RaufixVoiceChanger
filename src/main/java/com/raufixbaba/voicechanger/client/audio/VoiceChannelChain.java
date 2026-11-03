@@ -168,6 +168,9 @@ public final class VoiceChannelChain {
     }
 
     private double processSample(double input) {
+        if (!Double.isFinite(input)) {
+            return 0.0D;
+        }
         double magnitude = Math.abs(input);
         if (magnitude > this.peakLevel) {
             this.peakLevel = magnitude;
@@ -186,9 +189,14 @@ public final class VoiceChannelChain {
 
         wet = applyReverb(wet);
         wet *= this.outputGain.next();
+        if (!Double.isFinite(wet)) {
+            reset();
+            wet = dry;
+        }
 
         double blended = dry + (wet - dry) * this.blend.next();
-        return this.limiter.process(blended);
+        double limited = this.limiter.process(blended);
+        return Double.isFinite(limited) ? Math.max(-1.0D, Math.min(1.0D, limited)) : 0.0D;
     }
 
     private double applyReverb(double input) {

@@ -1,65 +1,62 @@
 package com.raufixbaba.voicechanger.client.audio;
 
+import com.raufixbaba.voicechanger.RaufixVoiceChanger;
+import com.raufixbaba.voicechanger.client.model.ActiveVoice;
+import com.raufixbaba.voicechanger.integration.OpenAlAudioBridge;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
-import javax.sound.sampled.AudioFormat;
-import javax.sound.sampled.AudioSystem;
-import javax.sound.sampled.DataLine;
-import javax.sound.sampled.LineUnavailableException;
-import javax.sound.sampled.SourceDataLine;
-import javax.sound.sampled.TargetDataLine;
-import com.raufixbaba.voicechanger.client.model.ActiveVoice;
 
 /**
- * Plays your own voice back to you while the studio is open.
+ * Live self-listen monitor ("Canlı Dinleme") powered 100% by Simple Voice Chat's
+ * native OpenAL {@code SoundManager} + {@code SpeakerManager} + {@code MicThread}.
  *
- * <p>Simple Voice Chat hands the mod audio through its sound event, which only
- * fires while you are actually transmitting. Whenever that is happening the
- * monitor plays back what the processor produced, which is exactly what
- * listeners receive and must not be processed a second time. The rest of the
- * time it opens its own capture line and runs the chain itself, because a
- * preview that only works while you hold the talk key is not a preview.</p>
+ * <p>Zero {@code javax.sound.sampled} calls are made anywhere: this eliminates
+ * ALSA / OpenALSoft device contention on Android (MojoLauncher / PojavLauncher),
+ * Linux, macOS, and Windows, so game audio never cuts out and Simple Voice Chat's
+ * microphone stream never disconnects.</p>
  *
- * <p>Unlike the previous version it respects the on/off switch: with the effect
- * disabled you hear your plain microphone rather than a processed voice.</p>
+ * <p>Works seamlessly in both Studio/Picker menus and live in-game ({@code I} key):</p>
+ * <ul>
+ *   <li>When actively transmitting to the server, plays the already-processed
+ *       frames from {@code processedBus} (zero double-processing).</li>
+ *   <li>When connected to a server without transmitting (e.g., inside GUI menus,
+ *       PTT not held, or muted), transforms untransmitted live mic frames tapped
+ *       directly from {@code MicThread} via {@code rawMicBus} (zero extra mic opened).</li>
+ *   <li>When offline / singleplayer / voice chat disabled, borrows or opens an
+ *       OpenAL {@code MicThread} via {@link OpenAlAudioBridge#openOfflineMic} and
+ *       yields immediately whenever a server connection starts.</li>
+ * </ul>
  */
 public final class SelfListenMonitor {
-    private static final AudioFormat MONO_48K = new AudioFormat(48_000f, 16, 1, true, false);
-    private static final int LINE_BUFFER_BYTES = 8_192;
-    private static final int BLOCK_SAMPLES = 960;
-    private static final long IDLE_SLEEP_MILLIS = 2L;
-    /** How long the shared stream may stay silent before the monitor captures itself. */
-    private static final long SHARED_STREAM_TIMEOUT_MILLIS = 400L;
+    private static final int BLOCK_SAMPLES = OpenAlAudioBridge.FRAME_SAMPLES;
+    private static final long IDLE_SLEEP_MILLIS = 3L;
+    private static final long SPEAKER_RETRY_MILLIS = 200L;
 
     /** Where the monitored audio is coming from. */
     public enum Mode {
         STOPPED,
-        /** Playing back what the voice chat processor produced. */
+        /** Playing back what the outgoing voice chat processor produced. */
         SHARED_STREAM,
-        /** Capturing separately, because the voice chat is not transmitting. */
+        /** Transforming untransmitted frames or offline OpenAL mic capture. */
         OWN_CAPTURE,
-        /** No capture could be opened at all. */
+        /** Waiting for OpenAL audio device availability. */
         UNAVAILABLE
     }
 
-    private final SelfListenBus bus;
-    private final Supplier<ActiveVoice> activeVoice;
-    private final Consumer<Double> levelReporter;
-    private final Consumer<Exception> failureHandler;
-    private final AiPreview aiPreview;
-    private final VoiceProcessor processor = new VoiceProcessor();
-
-    /**
-     * The studio's preview of the AI voice: while it is active, the monitor's
-     * own capture goes through the AI engine instead of the effects, so the
-     * player hears the AI voice without having to transmit.
-     */
     public interface AiPreview {
         boolean isActive();
 
         /** @return the converted frame, or {@code null} for silence */
         short[] convert(short[] mono);
     }
+
+    private final SelfListenBus processedBus;
+    private final SelfListenBus rawMicBus;
+    private final Supplier<ActiveVoice> activeVoice;
+    private final Consumer<Double> levelReporter;
+    private final Consumer<Exception> failureHandler;
+    private final AiPreview aiPreview;
+    private final VoiceProcessor processor = new VoiceProcessor();
 
     private volatile int lastBlockFrames;
     private volatile int blocksPerSecond;
@@ -71,13 +68,15 @@ public final class SelfListenMonitor {
     private volatile Mode mode = Mode.STOPPED;
 
     public SelfListenMonitor(
-            SelfListenBus bus,
+            SelfListenBus processedBus,
+            SelfListenBus rawMicBus,
             Supplier<ActiveVoice> activeVoice,
             Consumer<Double> levelReporter,
             Consumer<Exception> failureHandler,
             AiPreview aiPreview
     ) {
-        this.bus = bus;
+        this.processedBus = processedBus;
+        this.rawMicBus = rawMicBus;
         this.activeVoice = activeVoice;
         this.levelReporter = levelReporter;
         this.failureHandler = failureHandler;
@@ -88,9 +87,13 @@ public final class SelfListenMonitor {
         return this.mode;
     }
 
-    /** What the preview chain is doing, for the studio to display. */
+    public boolean isRunning() {
+        return this.running;
+    }
+
+    /** What the preview chain is doing, for the studio spectrum & Hz telemetry. */
     public VoiceDiagnostics diagnostics() {
-        if (!this.running) {
+        if (!this.running || this.mode == Mode.SHARED_STREAM) {
             return VoiceDiagnostics.IDLE;
         }
 
@@ -103,11 +106,6 @@ public final class SelfListenMonitor {
                 this.processor.spectrumBands());
     }
 
-    /**
-     * The count only moves when a block arrives, so once blocks stop coming it
-     * would go on showing the last busy second: a microphone that stalls
-     * would still read as running.
-     */
     private int recentBlocksPerSecond() {
         return System.currentTimeMillis() - this.secondStartedAt > 2_000L ? 0 : this.blocksPerSecond;
     }
@@ -118,7 +116,9 @@ public final class SelfListenMonitor {
         }
 
         this.running = true;
-        this.bus.open();
+        this.processedBus.open();
+        this.rawMicBus.open();
+        this.processor.reset();
         this.playbackThread = new Thread(this::runPlayback, "raufix-voice-changer-self-listen");
         this.playbackThread.setDaemon(true);
         this.playbackThread.start();
@@ -126,90 +126,150 @@ public final class SelfListenMonitor {
 
     public synchronized void stop() {
         this.running = false;
-        this.bus.close();
+        this.processedBus.close();
+        this.rawMicBus.close();
+        Thread thread = this.playbackThread;
+        this.playbackThread = null;
+        if (thread != null && thread != Thread.currentThread()) {
+            thread.interrupt();
+        }
         this.mode = Mode.STOPPED;
         this.blocksPerSecond = 0;
-        this.playbackThread = null;
     }
 
-    /**
-     * Owns every line it opens and releases them on the way out, so a failure
-     * anywhere cannot leak an audio device. Only this thread touches them.
-     */
     private void runPlayback() {
-        SourceDataLine output = null;
-        TargetDataLine capture = null;
+        OpenAlAudioBridge.SpeakerSession speaker = null;
+        OpenAlAudioBridge.OfflineMicSession offlineMic = null;
+        short[] frame = new short[BLOCK_SAMPLES];
+        boolean lastWasShared = false;
+        boolean loggedSpeakerRetry = false;
 
         try {
-            output = openPlayback();
-            short[] samples = new short[BLOCK_SAMPLES];
-            byte[] captureBytes = new byte[BLOCK_SAMPLES * 2];
-            byte[] playbackBytes = new byte[BLOCK_SAMPLES * 2];
-            long lastSharedAudioAt = System.currentTimeMillis();
-
-            while (this.running) {
-                int fromShared = this.bus.read(samples);
-                if (fromShared > 0) {
-                    // Already processed by the voice chat path; play it as it is.
-                    lastSharedAudioAt = System.currentTimeMillis();
-                    this.mode = Mode.SHARED_STREAM;
-                    capture = closeQuietly(capture);
-                    countBlock(fromShared);
-                    writeSamples(output, samples, fromShared, playbackBytes);
-                    continue;
-                }
-
-                if (System.currentTimeMillis() - lastSharedAudioAt < SHARED_STREAM_TIMEOUT_MILLIS) {
-                    Thread.sleep(IDLE_SLEEP_MILLIS);
-                    continue;
-                }
-                if (capture == null) {
-                    capture = openCapture();
-                    this.mode = capture != null ? Mode.OWN_CAPTURE : Mode.UNAVAILABLE;
-                    this.processor.reset();
-                    if (capture == null) {
-                        Thread.sleep(IDLE_SLEEP_MILLIS * 10L);
+            while (this.running && !Thread.currentThread().isInterrupted()) {
+                // 1. Ensure a healthy OpenAL Speaker is open (auto-recovers across reloadAudio())
+                if (speaker == null || !speaker.isHealthy()) {
+                    closeQuietly(speaker);
+                    speaker = null;
+                    try {
+                        speaker = OpenAlAudioBridge.openSpeaker();
+                        loggedSpeakerRetry = false;
+                    } catch (Exception ex) {
+                        this.mode = Mode.UNAVAILABLE;
+                        if (!loggedSpeakerRetry) {
+                            loggedSpeakerRetry = true;
+                            RaufixVoiceChanger.LOGGER.warn("Self-listen waiting for OpenAL speaker", ex);
+                        }
+                        Thread.sleep(SPEAKER_RETRY_MILLIS);
                         continue;
                     }
                 }
 
-                int captured = readCapture(capture, samples, captureBytes);
-                if (captured <= 0) {
+                // 2. Priority 1: Already-processed frames from outgoing Simple Voice Chat transmission
+                if (this.processedBus.readFullFrame(frame)) {
+                    offlineMic = closeOfflineQuietly(offlineMic);
+                    this.rawMicBus.clear();
+                    if (!lastWasShared) {
+                        this.processor.reset();
+                        lastWasShared = true;
+                    }
+                    this.mode = Mode.SHARED_STREAM;
+                    countBlock(BLOCK_SAMPLES);
+                    speaker.playFrame(frame, BLOCK_SAMPLES);
+                    continue;
+                }
+
+                // 3. Priority 2: Untransmitted live mic frames tapped from Simple Voice Chat's MicThread
+                if (OpenAlAudioBridge.hasActiveUpstreamMicPoll()) {
+                    offlineMic = closeOfflineQuietly(offlineMic);
+                    if (this.rawMicBus.readFullFrame(frame)) {
+                        if (lastWasShared) {
+                            this.processor.reset();
+                            lastWasShared = false;
+                        }
+                        this.mode = Mode.OWN_CAPTURE;
+                        processAndPlayPreview(speaker, frame);
+                        continue;
+                    }
                     Thread.sleep(IDLE_SLEEP_MILLIS);
                     continue;
                 }
 
-                this.levelReporter.accept(peakOf(samples, captured));
-                if (this.aiPreview.isActive()) {
-                    short[] converted = captured == BLOCK_SAMPLES ? this.aiPreview.convert(samples) : null;
-                    countBlock(captured);
-                    if (converted != null) {
-                        writeSamples(output, converted, converted.length, playbackBytes);
+                // 4. Priority 3: Offline / Singleplayer / Disabled Voice Chat fallback OpenAL Mic
+                if (offlineMic != null && offlineMic.shouldYield()) {
+                    offlineMic = closeOfflineQuietly(offlineMic);
+                }
+                if (offlineMic == null) {
+                    try {
+                        offlineMic = OpenAlAudioBridge.openOfflineMic(err ->
+                                RaufixVoiceChanger.LOGGER.warn("Offline self-listen microphone error", err));
+                        this.processor.reset();
+                        lastWasShared = false;
+                    } catch (RuntimeException ex) {
+                        this.mode = Mode.UNAVAILABLE;
+                        Thread.sleep(SPEAKER_RETRY_MILLIS);
+                        continue;
                     }
+                }
+
+                short[] polled = offlineMic.pollFrame();
+                if (polled == null || polled.length == 0) {
+                    Thread.sleep(IDLE_SLEEP_MILLIS);
                     continue;
                 }
 
-                ActiveVoice voice = this.activeVoice.get();
-                if (voice.active()) {
-                    this.processor.process(samples, captured, 1, voice.profile(), voice.strength());
+                this.mode = Mode.OWN_CAPTURE;
+                int copyLen = Math.min(BLOCK_SAMPLES, polled.length);
+                System.arraycopy(polled, 0, frame, 0, copyLen);
+                if (copyLen < BLOCK_SAMPLES) {
+                    java.util.Arrays.fill(frame, copyLen, BLOCK_SAMPLES, (short) 0);
                 }
-                countBlock(captured);
-                writeSamples(output, samples, captured, playbackBytes);
+                processAndPlayPreview(speaker, frame);
             }
         } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
         } catch (Exception exception) {
             this.mode = Mode.UNAVAILABLE;
-            this.failureHandler.accept(exception);
+            RaufixVoiceChanger.LOGGER.error("Self-listen monitor stopped unexpectedly", exception);
+            if (this.failureHandler != null) {
+                this.failureHandler.accept(exception);
+            }
         } catch (LinkageError error) {
             this.mode = Mode.UNAVAILABLE;
-            this.failureHandler.accept(new IllegalStateException(error.getMessage(), error));
+            RaufixVoiceChanger.LOGGER.error("Self-listen linkage error", error);
+            if (this.failureHandler != null) {
+                this.failureHandler.accept(new IllegalStateException(error.getMessage(), error));
+            }
         } finally {
-            closeQuietly(capture);
-            closeQuietly(output);
+            closeOfflineQuietly(offlineMic);
+            closeQuietly(speaker);
             this.running = false;
-            this.mode = Mode.STOPPED;
+            if (this.mode != Mode.UNAVAILABLE) {
+                this.mode = Mode.STOPPED;
+            }
         }
+    }
+
+    private void processAndPlayPreview(OpenAlAudioBridge.SpeakerSession speaker, short[] samples) {
+        this.levelReporter.accept(peakOf(samples, BLOCK_SAMPLES));
+
+        if (this.aiPreview.isActive()) {
+            short[] converted = this.aiPreview.convert(samples);
+            countBlock(BLOCK_SAMPLES);
+            if (converted != null && converted.length > 0) {
+                speaker.playFrame(converted, converted.length);
+            }
+            return;
+        }
+
+        ActiveVoice voice = this.activeVoice.get();
+        if (voice.active()) {
+            this.processor.process(samples, BLOCK_SAMPLES, 1, voice.profile(), voice.strength());
+        } else {
+            // Even when voice changer is bypassed, keep pitch/spectrum analyzer alive for Studio UI
+            this.processor.process(samples, BLOCK_SAMPLES, 1, voice.profile(), 0);
+        }
+        countBlock(BLOCK_SAMPLES);
+        speaker.playFrame(samples, BLOCK_SAMPLES);
     }
 
     private void countBlock(int frames) {
@@ -224,78 +284,28 @@ public final class SelfListenMonitor {
         }
     }
 
-    private static int readCapture(TargetDataLine line, short[] samples, byte[] bytes) {
-        int available = line.available();
-        if (available < bytes.length) {
-            return 0;
-        }
-
-        int read = line.read(bytes, 0, bytes.length);
-        if (read <= 0) {
-            return 0;
-        }
-
-        int count = read / 2;
-        for (int i = 0; i < count; i++) {
-            samples[i] = (short) ((bytes[i * 2] & 0xFF) | (bytes[i * 2 + 1] << 8));
-        }
-        return count;
-    }
-
-    private static double peakOf(short[] samples, int count) {
+    public static double peakOf(short[] samples, int count) {
         int peak = 0;
-        for (int i = 0; i < count; i++) {
-            int magnitude = Math.abs(samples[i]);
+        int limit = Math.min(samples.length, count);
+        for (int i = 0; i < limit; i++) {
+            int magnitude = Math.abs((int) samples[i]);
             if (magnitude > peak) {
                 peak = magnitude;
             }
         }
-        return peak / 32_768.0D;
+        return Math.min(1.0D, peak / 32_768.0D);
     }
 
-    private static void writeSamples(SourceDataLine output, short[] samples, int count, byte[] scratch) {
-        for (int i = 0; i < count; i++) {
-            scratch[i * 2] = (byte) (samples[i] & 0xFF);
-            scratch[i * 2 + 1] = (byte) ((samples[i] >>> 8) & 0xFF);
-        }
-        output.write(scratch, 0, count * 2);
-    }
-
-    private static SourceDataLine openPlayback() throws LineUnavailableException {
-        SourceDataLine line = (SourceDataLine) AudioSystem.getLine(
-                new DataLine.Info(SourceDataLine.class, MONO_48K));
-        line.open(MONO_48K, LINE_BUFFER_BYTES);
-        line.start();
-        return line;
-    }
-
-    private static TargetDataLine openCapture() {
-        try {
-            TargetDataLine line = (TargetDataLine) AudioSystem.getLine(
-                    new DataLine.Info(TargetDataLine.class, MONO_48K));
-            line.open(MONO_48K, LINE_BUFFER_BYTES);
-            line.start();
-            return line;
-        } catch (Exception ignored) {
-            return null;
+    private static void closeQuietly(OpenAlAudioBridge.SpeakerSession speaker) {
+        if (speaker != null) {
+            speaker.close();
         }
     }
 
-    private static TargetDataLine closeQuietly(TargetDataLine line) {
-        if (line != null) {
-            line.stop();
-            line.flush();
-            line.close();
+    private static OpenAlAudioBridge.OfflineMicSession closeOfflineQuietly(OpenAlAudioBridge.OfflineMicSession mic) {
+        if (mic != null) {
+            mic.close();
         }
         return null;
-    }
-
-    private static void closeQuietly(SourceDataLine line) {
-        if (line == null) {
-            return;
-        }
-        line.stop();
-        line.flush();
-        line.close();
     }
 }

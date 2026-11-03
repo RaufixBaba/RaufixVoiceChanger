@@ -26,7 +26,7 @@ public enum VoiceParameter {
     RADIO("radio", Unit.PERCENT, 0.0D, 1.0D, 0.0D, 0.0D),
 
     // --- Cleanup ---
-    GATE("gate", Unit.PERCENT, 0.0D, 1.0D, 0.30D, 0.0D),
+    GATE("gate", Unit.PERCENT, 0.0D, 1.0D, 0.10D, 0.0D),
     DE_ESS("deEss", Unit.PERCENT, 0.0D, 1.0D, 0.30D, 0.0D),
 
     // --- Character ---
