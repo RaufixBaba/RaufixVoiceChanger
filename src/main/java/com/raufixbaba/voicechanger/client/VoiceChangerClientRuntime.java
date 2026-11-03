@@ -17,9 +17,10 @@ public final class VoiceChangerClientRuntime {
             Identifier.fromNamespaceAndPath(RaufixVoiceChanger.MOD_ID, "voice_changer")
     );
 
-    private KeyMapping toggleEffectKey;
     private KeyMapping openPickerKey;
     private KeyMapping openStudioKey;
+    private KeyMapping toggleEffectKey;
+    private KeyMapping selfListenKey;
     private boolean initialized;
 
     private VoiceChangerClientRuntime() {
@@ -32,22 +33,28 @@ public final class VoiceChangerClientRuntime {
 
         VoiceChangerController.INSTANCE.initialize(configDirectory);
 
-        this.toggleEffectKey = new KeyMapping(
-                "key.raufixvc.toggle",
-                InputConstants.Type.KEYSYM,
-                InputConstants.KEY_J,
-                KEY_CATEGORY
-        );
         this.openPickerKey = new KeyMapping(
                 "key.raufixvc.open_picker",
                 InputConstants.Type.KEYSYM,
-                InputConstants.KEY_K,
+                InputConstants.KEY_J,
                 KEY_CATEGORY
         );
         this.openStudioKey = new KeyMapping(
                 "key.raufixvc.open_studio",
                 InputConstants.Type.KEYSYM,
-                InputConstants.UNKNOWN.getValue(),
+                InputConstants.KEY_U,
+                KEY_CATEGORY
+        );
+        this.toggleEffectKey = new KeyMapping(
+                "key.raufixvc.toggle",
+                InputConstants.Type.KEYSYM,
+                InputConstants.KEY_O,
+                KEY_CATEGORY
+        );
+        this.selfListenKey = new KeyMapping(
+                "key.raufixvc.self_listen",
+                InputConstants.Type.KEYSYM,
+                InputConstants.KEY_I,
                 KEY_CATEGORY
         );
 
@@ -58,9 +65,10 @@ public final class VoiceChangerClientRuntime {
 
     public void registerHotkeys(Consumer<KeyMapping> registrar) {
         requireInitialized();
-        registrar.accept(this.toggleEffectKey);
         registrar.accept(this.openPickerKey);
         registrar.accept(this.openStudioKey);
+        registrar.accept(this.toggleEffectKey);
+        registrar.accept(this.selfListenKey);
     }
 
     public void tick(Minecraft client) {
@@ -71,12 +79,6 @@ public final class VoiceChangerClientRuntime {
         VoiceChangerController controller = VoiceChangerController.INSTANCE;
         controller.tick();
 
-        while (this.toggleEffectKey.consumeClick()) {
-            if (MinecraftScreenAccess.current(client) == null) {
-                controller.toggleEnabled();
-            }
-        }
-
         while (this.openPickerKey.consumeClick()) {
             if (MinecraftScreenAccess.current(client) == null) {
                 MinecraftScreenAccess.show(client, new VoicePickerScreen(null, controller));
@@ -86,6 +88,18 @@ public final class VoiceChangerClientRuntime {
         while (this.openStudioKey.consumeClick()) {
             if (MinecraftScreenAccess.current(client) == null) {
                 MinecraftScreenAccess.show(client, new VoiceChangerStudioScreen(null, controller));
+            }
+        }
+
+        while (this.toggleEffectKey.consumeClick()) {
+            if (MinecraftScreenAccess.current(client) == null) {
+                controller.toggleEnabled();
+            }
+        }
+
+        while (this.selfListenKey.consumeClick()) {
+            if (MinecraftScreenAccess.current(client) == null) {
+                controller.setSelfListenEnabled(!controller.isSelfListenEnabled());
             }
         }
     }

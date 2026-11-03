@@ -201,6 +201,9 @@ public final class SelfListenMonitor {
         } catch (Exception exception) {
             this.mode = Mode.UNAVAILABLE;
             this.failureHandler.accept(exception);
+        } catch (LinkageError error) {
+            this.mode = Mode.UNAVAILABLE;
+            this.failureHandler.accept(new IllegalStateException(error.getMessage(), error));
         } finally {
             closeQuietly(capture);
             closeQuietly(output);

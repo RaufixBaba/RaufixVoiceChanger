@@ -2,6 +2,7 @@
   "key.category.raufix-voice-changer.voice_changer": "Raufix Voice Changer (V1 Beta)",
   "key.raufixvc.open_picker": "Open All-Voices Selection Page",
   "key.raufixvc.open_studio": "Open Raufix Voice Studio",
+  "key.raufixvc.self_listen": "Toggle Self-Listen Monitor",
   "key.raufixvc.toggle": "Toggle Voice Changer On/Off",
   "raufixvc.actionbar.disabled": "✦ Raufix Voice Changer: OFF",
   "raufixvc.actionbar.enabled": "✦ Raufix Voice Changer: ON • [%s]",
