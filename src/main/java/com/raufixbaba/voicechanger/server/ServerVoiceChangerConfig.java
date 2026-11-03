@@ -1,0 +1,142 @@
+package com.raufixbaba.voicechanger.server;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Properties;
+import com.raufixbaba.voicechanger.protocol.VoiceSourceRule;
+
+/**
+ * What the server operator decided, on disk.
+ *
+ * <p>Written back in full whenever it is loaded, so a fresh install gets a
+ * commented file with every option in it rather than an empty one the operator
+ * has to guess at. Anything unreadable falls back to the defaults and is
+ * logged: a broken config should not stop the server from starting, and
+ * silently denying everybody the voice changer would be the worse failure.</p>
+ */
+public final class ServerVoiceChangerConfig {
+    private static final String FILE_NAME = "server.properties";
+
+    private static final String KEY_ALLOWED = "allow-voice-changer";
+    private static final String KEY_DENIED_MESSAGE = "denied-message";
+    private static final String KEY_SHARE_PRESETS = "share-presets";
+    private static final String KEY_ALLOWED_VOICES = "allowed-voices";
+    private static final String KEY_ALLOW_AI_VOICE = "allow-ai-voice";
+
+    private static final String COMMENT = """
+            Raufix Voice Changer V1.0 BETA — Server Settings (by RaufixBaba)
+
+            allow-voice-changer  Whether players may change their voice here.
+                                 Toggled at runtime with /raufixvc on|off (/rvc).
+            denied-message       Shown to a player whose voice changer is off
+                                 because of this server. Leave empty to use the
+                                 built-in localized message.
+            share-presets        Whether the voices in the shared-voices
+                                 folder next to this file are offered to players.
+            allowed-voices       all | presets | server-only
+            allow-ai-voice       Whether players may speak with an AI voice.
+                                 Toggled with /raufixvc ai on|off.""";
+
+    private final Path file;
+
+    private volatile boolean allowed = true;
+    private volatile String deniedMessage = "";
+    private volatile boolean sharePresets = true;
+    private volatile VoiceSourceRule allowedVoices = VoiceSourceRule.ALL;
+    private volatile boolean aiVoiceAllowed = true;
+
+    public ServerVoiceChangerConfig(Path directory) {
+        this.file = directory.resolve(FILE_NAME);
+    }
+
+    public boolean isAllowed() {
+        return this.allowed;
+    }
+
+    public String getDeniedMessage() {
+        return this.deniedMessage;
+    }
+
+    public boolean isSharePresets() {
+        return this.sharePresets;
+    }
+
+    public VoiceSourceRule getAllowedVoices() {
+        return this.allowedVoices;
+    }
+
+    public boolean isAiVoiceAllowed() {
+        return this.aiVoiceAllowed;
+    }
+
+    /** @throws IOException if the file exists but cannot be read */
+    public void load() throws IOException {
+        if (Files.exists(this.file)) {
+            Properties properties = new Properties();
+            try (InputStream input = Files.newInputStream(this.file)) {
+                properties.load(input);
+            }
+
+            this.allowed = parseBoolean(properties.getProperty(KEY_ALLOWED), true);
+            this.deniedMessage = properties.getProperty(KEY_DENIED_MESSAGE, "").trim();
+            this.sharePresets = parseBoolean(properties.getProperty(KEY_SHARE_PRESETS), true);
+            this.allowedVoices = VoiceSourceRule.byConfigValue(
+                    properties.getProperty(KEY_ALLOWED_VOICES), VoiceSourceRule.ALL);
+            this.aiVoiceAllowed = parseBoolean(properties.getProperty(KEY_ALLOW_AI_VOICE), true);
+        }
+
+        save();
+    }
+
+    public void setAllowed(boolean allowed) throws IOException {
+        this.allowed = allowed;
+        save();
+    }
+
+    public void setAllowedVoices(VoiceSourceRule allowedVoices) throws IOException {
+        this.allowedVoices = allowedVoices;
+        save();
+    }
+
+    public void setAiVoiceAllowed(boolean allowed) throws IOException {
+        this.aiVoiceAllowed = allowed;
+        save();
+    }
+
+    private void save() throws IOException {
+        Files.createDirectories(this.file.getParent());
+
+        Properties properties = new Properties();
+        properties.setProperty(KEY_ALLOWED, Boolean.toString(this.allowed));
+        properties.setProperty(KEY_DENIED_MESSAGE, this.deniedMessage);
+        properties.setProperty(KEY_SHARE_PRESETS, Boolean.toString(this.sharePresets));
+        properties.setProperty(KEY_ALLOWED_VOICES, this.allowedVoices.configValue());
+        properties.setProperty(KEY_ALLOW_AI_VOICE, Boolean.toString(this.aiVoiceAllowed));
+
+        try (OutputStream output = Files.newOutputStream(this.file)) {
+            properties.store(output, COMMENT);
+        }
+    }
+
+    /**
+     * Unlike {@link Boolean#parseBoolean}, a value that is neither true nor
+     * false keeps the default rather than quietly becoming false.
+     */
+    private static boolean parseBoolean(String raw, boolean fallback) {
+        if (raw == null) {
+            return fallback;
+        }
+
+        String trimmed = raw.trim();
+        if (trimmed.equalsIgnoreCase("true")) {
+            return true;
+        }
+        if (trimmed.equalsIgnoreCase("false")) {
+            return false;
+        }
+        return fallback;
+    }
+}

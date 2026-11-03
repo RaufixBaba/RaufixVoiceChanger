@@ -1,0 +1,18 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "com.raufixbaba.voicechanger.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "refmap": "raufix-voice-changer-refmap.json",
+  "client": [
+    "MicThreadMixin",
+    "TalkingHudIconMixin",
+    "VoiceChatScreenMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  },
+  "overwrites": {
+    "requireAnnotations": true
+  }
+}
