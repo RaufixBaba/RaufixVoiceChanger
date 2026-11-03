@@ -53,6 +53,7 @@ public final class VoiceChangerController {
     private final VoiceChangerApiSupport api = new VoiceChangerApiSupport();
     private final ServerVoiceSession serverSession = new ServerVoiceSession(this);
     private final SelfListenBus selfListenBus = new SelfListenBus();
+    private final SelfListenBus rawMicBus = new SelfListenBus();
     private final SimpleVoiceChatAudioProcessor audioProcessor =
             new SimpleVoiceChatAudioProcessor(this.selfListenBus);
     private final AiVoiceRuntime aiRuntime = new AiVoiceRuntime();
@@ -60,9 +61,13 @@ public final class VoiceChangerController {
     private final AtomicLong micHookCalls = new AtomicLong();
     private final SelfListenMonitor selfListenMonitor = new SelfListenMonitor(
             this.selfListenBus,
+            this.rawMicBus,
             this::getActiveVoice,
             this::reportInputLevel,
-            failure -> setSelfListenEnabled(false),
+            failure -> {
+                this.selfListenEnabled = false;
+                ClientScreens.sendActionBarMessage(RaufixI18n.tr("raufixvc.actionbar.self_listen_off"));
+            },
             new SelfListenMonitor.AiPreview() {
                 @Override
                 public boolean isActive() {
@@ -141,6 +146,7 @@ public final class VoiceChangerController {
         VoiceChangerApiRegistry.withdraw();
         this.api.clear();
         this.selfListenMonitor.stop();
+        com.raufixbaba.voicechanger.integration.OpenAlAudioBridge.releaseActiveOfflineMic();
         this.aiVoice.shutdown();
         persistAutosave();
         this.initialized = false;
@@ -153,8 +159,11 @@ public final class VoiceChangerController {
         }
 
         this.serverSession.tick();
-        if (!isStudioPreviewActive() && this.selfListenEnabled) {
-            setSelfListenEnabled(false);
+        // Smooth decay of input meter when no mic frames are arriving
+        if (this.inputLevel > 0.001D) {
+            this.inputLevel *= 0.86D;
+        } else {
+            this.inputLevel = 0.0D;
         }
         this.aiVoice.tick();
         this.aiVoice.setPreviewWanted(this.selfListenEnabled || isVoiceModMenuOpen());
@@ -263,6 +272,22 @@ public final class VoiceChangerController {
     public void publishAiFrame(short[] frame) {
         if (this.selfListenBus.isActive()) {
             this.selfListenBus.write(frame, 1);
+        }
+    }
+
+    /**
+     * Receives live 48 kHz mono frames polled by Simple Voice Chat's {@code MicThread}.
+     * Never mutates {@code samples}. Feeds untransmitted mic frames to the OpenAL
+     * self-listen monitor and keeps the studio's input meter responsive without PTT.
+     */
+    public void onLiveMicPoll(short[] samples, boolean willTransmit) {
+        if (willTransmit || samples == null || samples.length == 0) {
+            return;
+        }
+        if (this.selfListenEnabled && this.rawMicBus.isActive()) {
+            this.rawMicBus.write(samples, 1);
+        } else if (isStudioPreviewActive()) {
+            reportInputLevel(SelfListenMonitor.peakOf(samples, samples.length));
         }
     }
 
@@ -498,13 +523,23 @@ public final class VoiceChangerController {
     }
 
     public void setSelfListenEnabled(boolean enabled) {
-        this.selfListenEnabled = enabled && isStudioPreviewActive();
-        if (this.selfListenEnabled) {
+        if (this.selfListenEnabled == enabled && enabled == this.selfListenMonitor.isRunning()) {
+            return;
+        }
+        this.selfListenEnabled = enabled;
+        if (enabled) {
             this.selfListenMonitor.start();
         } else {
             this.selfListenMonitor.stop();
         }
         persistAutosave();
+    }
+
+    public void toggleSelfListenInGame() {
+        boolean next = !this.selfListenEnabled;
+        setSelfListenEnabled(next);
+        ClientScreens.sendActionBarMessage(RaufixI18n.tr(
+                next ? "raufixvc.actionbar.self_listen_on" : "raufixvc.actionbar.self_listen_off"));
     }
 
     public void applyBuiltInPreset(VoiceChangerPreset preset) {
@@ -632,7 +667,15 @@ public final class VoiceChangerController {
             state = VoiceChangerState.defaults();
         }
 
-        applyState(state);
+        applyState(new VoiceChangerState(
+                state.enabled(),
+                false, // Always boot with self-listen off; player toggles it intentionally via UI or [I]
+                state.preset(),
+                state.strength(),
+                state.savedPresetName(),
+                state.contributedVoiceId(),
+                state.profile()
+        ));
     }
 
     private void applyState(VoiceChangerState state) {
@@ -642,7 +685,7 @@ public final class VoiceChangerController {
             this.selectedSavedPresetName = normalizeSavedPresetName(state.savedPresetName());
             this.selectedContributedVoiceId = state.contributedVoiceId();
             this.effectEnabled = state.enabled();
-            this.selfListenEnabled = state.selfListen() && isStudioPreviewActive();
+            this.selfListenEnabled = state.selfListen();
             this.selectedPreset = state.preset();
             this.strength = clampInt(state.strength(), 0, 100);
         } finally {

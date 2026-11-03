@@ -7,6 +7,7 @@ import java.util.function.IntSupplier;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
 /**
@@ -20,6 +21,7 @@ public final class RangeSlider extends AbstractSliderButton {
     private final IntConsumer valueConsumer;
     private final IntFunction<String> formatter;
     private boolean valueOnly;
+    private boolean dragging;
 
     public RangeSlider(int x, int y, int width, int height, String labelKey, int min, int max,
                        IntFunction<String> formatter, IntSupplier valueSupplier, IntConsumer valueConsumer) {
@@ -31,10 +33,17 @@ public final class RangeSlider extends AbstractSliderButton {
         this.valueSupplier = valueSupplier;
         this.valueConsumer = valueConsumer;
         setTooltip(Tooltip.create(RaufixI18n.tr(labelKey + ".desc")));
-        refresh();
+        forceRefresh();
     }
 
     public void refresh() {
+        if (this.dragging) {
+            return;
+        }
+        forceRefresh();
+    }
+
+    private void forceRefresh() {
         int current = Math.max(this.min, Math.min(this.max, this.valueSupplier.getAsInt()));
         this.value = (current - this.min) / (double) (this.max - this.min);
         updateMessage();
@@ -44,6 +53,24 @@ public final class RangeSlider extends AbstractSliderButton {
         this.valueOnly = true;
         updateMessage();
         return this;
+    }
+
+    @Override
+    public void onClick(MouseButtonEvent event, boolean doubleClick) {
+        this.dragging = true;
+        super.onClick(event, doubleClick);
+    }
+
+    @Override
+    protected void onDrag(MouseButtonEvent event, double dragX, double dragY) {
+        this.dragging = true;
+        super.onDrag(event, dragX, dragY);
+    }
+
+    @Override
+    public void onRelease(MouseButtonEvent event) {
+        this.dragging = false;
+        super.onRelease(event);
     }
 
     @Override

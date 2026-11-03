@@ -19,7 +19,7 @@ import java.util.Arrays;
  */
 public final class VocalRealismStage {
     private static final double TWO_PI = Math.PI * 2.0D;
-    private static final double CHEST_MUD_HZ = 185.0D;
+    private static final double CHEST_MUD_HZ = 132.0D;
     private static final double CHEST_MUD_Q = 1.15D;
     private static final double PRESENCE_HZ = 2_750.0D;
     private static final double PRESENCE_Q = 1.05D;
@@ -87,14 +87,25 @@ public final class VocalRealismStage {
     }
 
     public double process(double input) {
+        if (!Double.isFinite(input)) {
+            reset();
+            return 0.0D;
+        }
+
         double signal = input;
         if (this.lastClarity > 0.005D) {
-            signal = this.presenceFilter.process(this.chestCutFilter.process(signal));
+            // Compensate for chest-mud carve so high-clarity voices never lose vocal loudness
+            double clarityMakeup = 1.0D + 0.34D * this.lastClarity;
+            signal = this.presenceFilter.process(this.chestCutFilter.process(signal)) * clarityMakeup;
         }
 
         signal = applyBreathiness(signal);
         signal = applyWarmth(signal);
         signal = applyChorus(signal);
+        if (!Double.isFinite(signal)) {
+            reset();
+            return input;
+        }
         return signal;
     }
 

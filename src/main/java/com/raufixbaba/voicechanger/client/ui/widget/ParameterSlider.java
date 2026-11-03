@@ -8,6 +8,7 @@ import java.util.function.Supplier;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.components.Tooltip;
+import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
 /**
@@ -17,6 +18,7 @@ public final class ParameterSlider extends AbstractSliderButton {
     private final VoiceParameter parameter;
     private final Supplier<VoiceProfile> profileSupplier;
     private final Consumer<VoiceProfile> profileConsumer;
+    private boolean dragging;
 
     public ParameterSlider(
             int x,
@@ -32,12 +34,37 @@ public final class ParameterSlider extends AbstractSliderButton {
         this.profileSupplier = profileSupplier;
         this.profileConsumer = profileConsumer;
         setTooltip(Tooltip.create(RaufixI18n.tr(parameter.descriptionKey())));
-        refresh(profileSupplier.get());
+        forceRefresh(profileSupplier.get());
     }
 
     public void refresh(VoiceProfile profile) {
+        if (this.dragging) {
+            return;
+        }
+        forceRefresh(profile);
+    }
+
+    private void forceRefresh(VoiceProfile profile) {
         this.value = toSliderPosition(profile.get(this.parameter));
         updateMessage();
+    }
+
+    @Override
+    public void onClick(MouseButtonEvent event, boolean doubleClick) {
+        this.dragging = true;
+        super.onClick(event, doubleClick);
+    }
+
+    @Override
+    protected void onDrag(MouseButtonEvent event, double dragX, double dragY) {
+        this.dragging = true;
+        super.onDrag(event, dragX, dragY);
+    }
+
+    @Override
+    public void onRelease(MouseButtonEvent event) {
+        this.dragging = false;
+        super.onRelease(event);
     }
 
     @Override

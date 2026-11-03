@@ -131,8 +131,18 @@ public final class Biquad {
     }
 
     public double process(double input) {
+        if (!Double.isFinite(input)) {
+            reset();
+            return 0.0D;
+        }
+
         double output = this.b0 * input + this.b1 * this.x1 + this.b2 * this.x2
                 - this.a1 * this.y1 - this.a2 * this.y2;
+
+        if (!Double.isFinite(output)) {
+            reset();
+            return input;
+        }
 
         this.x2 = this.x1;
         this.x1 = input;

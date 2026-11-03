@@ -99,7 +99,7 @@ public final class VoiceChangerClientRuntime {
 
         while (this.selfListenKey.consumeClick()) {
             if (MinecraftScreenAccess.current(client) == null) {
-                controller.setSelfListenEnabled(!controller.isSelfListenEnabled());
+                controller.toggleSelfListenInGame();
             }
         }
     }

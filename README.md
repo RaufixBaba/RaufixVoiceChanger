@@ -35,13 +35,18 @@
    - **Canlı 8-Bant RGB Spektrum Analizörü & VU Metre:** Konuşurken sesinizin frekanslarını gerçek zamanlı izleyin.
    - **Hızlı Ses Seçici Kart Izgarası:** Kategori filtreleri (`Tümü`, `Doğal`, `Karakter`, `Fantastik`, `Bilim Kurgu / Efekt`, `Kayıtlı`, `★ Favori`), canlı arama kutusu, favori yıldızlama ve `[YENİ]` V1 rozetleri.
 
-3. **🎭 22 Hazır Ses Profili (15 Yepyeni V1 Beta Sesi!)**
-   - **Doğal İnsan (8):** `Doğal Kız Sesi`, `Yumuşak Kız Sesi (Soft)` *(Yeni)*, `Olgun Kadın Sesi` *(Yeni)*, `Doğal Erkek Sesi`, `Derin Radyo Spikeri` *(Yeni)*, `Genç Erkek` *(Yeni)*, `Çocuk Sesi`, `Yaşlı Bilge Adam` *(Yeni)*
-   - **Sinematik Karakter (5):** `Anime Kızı (Kawaii)` *(Yeni)*, `Karanlık Şövalye`, `Telefon Katili (Ghostface)` *(Yeni)*, `Karanlık Lord (Kasklı)` *(Yeni)*, `Kadim Büyücü` *(Yeni)*
-   - **Fantastik & Korku (5):** `Devasa Titan`, `Cehennem İblisi`, `Gölge Azrail` *(Yeni)*, `Hortlak / Zombi` *(Yeni)*, `Semavi Melek` *(Yeni)*
-   - **Bilim Kurgu & Müzik (4):** `Taktiksel Sayborg`, `Kozmik Uzaylı` *(Yeni)*, `Askeri Telsiz` *(Yeni)*, `Trap Rapçi Autotune` *(Yeni)*
+3. **🔊 %100 OpenAL Canlı Dinleme & Mobil (MojoLauncher / PojavLauncher) + PC Uyumluluğu**
+   - `javax.sound.sampled` çakışmaları tamamen kaldırılarak Simple Voice Chat'in kendi **OpenAL `SoundManager` + `SpeakerManager` + `MicThread`** altyapısına entegre edildi.
+   - Hem stüdyo menüsünde hem de oyun içinde **`[I]`** tuşuyla kendi değiştirilmiş sesinizi oyun sesini kesmeden, sıfır mikrofon kopmasıyla anlık dinleyebilirsiniz!
+   - Stüdyo içinden tek tıkla **Bas-Konuş (`PTT`) ↔ Otomatik Ses Algılama (`VAD`)**, **Mikrofon Aç/Kapat**, **OpenAL Ses Yenile (`↻`)** ve **SVC Ayarları (`⚙`)** kontrolü!
 
-4. **🇹🇷 Tam Türkçe (Varsayılan) + 🇬🇧 İngilizce Dil Desteği**
+4. **🎭 26 Kalibreli Hazır Stüdyo Sesi (+ Tek Tık Normal Ses Kartı)**
+   - **Doğal İnsan (9):** `Doğal Kız Sesi`, `Yumuşak Kız Sesi (Soft)`, `Olgun Kadın Sesi`, `Doğal Erkek Sesi`, `GigaChad Bass` *(Yeni)*, `Derin Radyo Spikeri`, `Genç Erkek`, `Çocuk Sesi`, `Yaşlı Bilge Adam`
+   - **Sinematik Karakter (6):** `Anime Kızı (Kawaii)`, `Karanlık Şövalye`, `Telefon Katili (Ghostface)`, `Karanlık Lord (Kasklı)`, `Kadim Büyücü`, `Telsiz Komutanı` *(Yeni)*
+   - **Fantastik & Korku (6):** `Devasa Titan`, `Cehennem İblisi`, `Mağara Trolü` *(Yeni)*, `Gölge Azrail`, `Hortlak / Zombi`, `Semavi Melek`
+   - **Bilim Kurgu, Eğlence & Müzik (5):** `Taktiksel Sayborg`, `Kozmik Uzaylı`, `Askeri Telsiz`, `Sincap (Helyum)` *(Yeni)*, `Trap Rapçi Autotune`
+
+5. **🇹🇷 Tam Türkçe (Varsayılan) + 🇬🇧 İngilizce Dil Desteği**
    - Mod ilk açılışta **otomatik olarak Türkçe** başlar (Minecraft'ınız İngilizce olsa bile!).
    - Üst bardaki **`Dil: Türkçe / EN / Oto`** butonuyla oyunu yeniden başlatmadan anında dil değiştirebilirsiniz.
 

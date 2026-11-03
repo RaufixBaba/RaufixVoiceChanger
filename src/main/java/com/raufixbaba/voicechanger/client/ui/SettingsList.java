@@ -136,6 +136,18 @@ final class SettingsList {
         return this.scroll.viewportHeight();
     }
 
+    boolean mouseClicked(double mouseX, double mouseY, int button) {
+        return this.scroll.mouseClicked(mouseX, mouseY, button);
+    }
+
+    boolean mouseDragged(double mouseX, double mouseY, int button, double dragY) {
+        return this.scroll.mouseDragged(mouseX, mouseY, button, dragY);
+    }
+
+    boolean mouseReleased(double mouseX, double mouseY, int button) {
+        return this.scroll.mouseReleased(mouseX, mouseY, button);
+    }
+
     /** Labels, titles and text of the rows in view, then the scrollbar beside the list. */
     void paint(StudioGraphics graphics) {
         int offset = this.scroll.scrollOffset();

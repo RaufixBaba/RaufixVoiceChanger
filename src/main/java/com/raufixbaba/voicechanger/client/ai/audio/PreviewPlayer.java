@@ -1,20 +1,14 @@
 package com.raufixbaba.voicechanger.client.ai.audio;
 
-import javax.sound.sampled.AudioFormat;
-import javax.sound.sampled.AudioSystem;
-import javax.sound.sampled.DataLine;
-import javax.sound.sampled.LineUnavailableException;
-import javax.sound.sampled.SourceDataLine;
+import com.raufixbaba.voicechanger.integration.OpenAlAudioBridge;
+import java.util.concurrent.locks.LockSupport;
 
 /**
- * Plays a voice sample from the gallery to the player alone.
- *
- * <p>One sample at a time: pressing play on another voice stops the one that
- * is playing, so clicking down the list does not stack voices on top of each
- * other.</p>
+ * Plays a voice sample from the AI gallery to the player alone through Simple Voice Chat's
+ * OpenAL speaker pipeline (zero {@code javax.sound.sampled} device contention).
  */
 public final class PreviewPlayer {
-    private static final AudioFormat FORMAT = new AudioFormat(AudioFrames.SAMPLE_RATE, 16, 1, true, false);
+    private static final long FRAME_NANOS = 20_000_000L; // 20 ms per 960-sample 48 kHz frame
 
     private static Thread playing;
 
@@ -23,7 +17,10 @@ public final class PreviewPlayer {
 
     public static synchronized void play(short[] samples) {
         stop();
-        Thread thread = new Thread(() -> write(samples), "Voice changer AI preview");
+        if (samples == null || samples.length == 0) {
+            return;
+        }
+        Thread thread = new Thread(() -> streamOpenAl(samples), "raufix-ai-preview-player");
         thread.setDaemon(true);
         playing = thread;
         thread.start();
@@ -36,23 +33,34 @@ public final class PreviewPlayer {
         }
     }
 
-    private static void write(short[] samples) {
-        byte[] bytes = AudioFrames.toLittleEndian(samples);
-        try {
-            SourceDataLine line = (SourceDataLine) AudioSystem.getLine(new DataLine.Info(SourceDataLine.class, FORMAT));
-            line.open(FORMAT);
-            line.start();
-            int chunk = AudioFrames.FRAME_SAMPLES * 2 * 5;
-            for (int offset = 0; offset < bytes.length && !Thread.currentThread().isInterrupted(); offset += chunk) {
-                line.write(bytes, offset, Math.min(chunk, bytes.length - offset));
+    private static void streamOpenAl(short[] samples) {
+        try (OpenAlAudioBridge.SpeakerSession speaker = OpenAlAudioBridge.openSpeaker()) {
+            int step = OpenAlAudioBridge.FRAME_SAMPLES;
+            short[] frame = new short[step];
+            long nextDeadline = System.nanoTime();
+
+            for (int offset = 0; offset < samples.length && !Thread.currentThread().isInterrupted(); offset += step) {
+                int count = Math.min(step, samples.length - offset);
+                System.arraycopy(samples, offset, frame, 0, count);
+                if (count < step) {
+                    java.util.Arrays.fill(frame, count, step, (short) 0);
+                }
+                speaker.playFrame(frame, step);
+
+                nextDeadline += FRAME_NANOS;
+                long waitNanos = nextDeadline - System.nanoTime();
+                if (waitNanos > 0L) {
+                    LockSupport.parkNanos(waitNanos);
+                }
             }
+            // Allow OpenAL source queue to finish draining last buffers smoothly
             if (!Thread.currentThread().isInterrupted()) {
-                line.drain();
+                Thread.sleep(120L);
             }
-            line.stop();
-            line.close();
-        } catch (LineUnavailableException | IllegalArgumentException ignored) {
-            // No output line: the gallery simply stays silent.
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        } catch (Exception ignored) {
+            // Speaker unavailable; gallery stays silent without disturbing OpenAL.
         }
     }
 }

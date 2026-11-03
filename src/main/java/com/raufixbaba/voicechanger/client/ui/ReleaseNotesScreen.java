@@ -102,8 +102,25 @@ public final class ReleaseNotesScreen extends CompatScreen {
     }
 
     @Override
+    protected boolean onScrollBarClicked(double mouseX, double mouseY, int button) {
+        return this.list != null && this.list.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    protected boolean onScrollBarDragged(double mouseX, double mouseY, int button, double dragY) {
+        return this.list != null && this.list.mouseDragged(mouseX, mouseY, button, dragY);
+    }
+
+    @Override
+    protected boolean onScrollBarReleased(double mouseX, double mouseY, int button) {
+        return this.list != null && this.list.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
     public void onClose() {
-        this.addon.setSelfListenEnabled(false);
+        if (this.parent == null && this.addon.isSelfListenEnabled()) {
+            ClientScreens.sendActionBarMessage(RaufixI18n.tr("raufixvc.actionbar.self_listen_on"));
+        }
         ClientScreens.open(this.parent);
     }
 }
