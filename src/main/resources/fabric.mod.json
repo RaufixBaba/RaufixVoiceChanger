@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "id": "raufix-voice-changer",
+  "version": "${version}",
+  "name": "Raufix Voice Changer",
+  "description": "Minecraft 1.21.11 Simple Voice Chat icin Ultra Gelismis, Gercekci DSP Ses Motorlu, 22+ Hazir Sesli ve Animasyonlu RGB Gradyan Temali Ses Degistirici Studyosu (V1 BETA) — Gelistirici: RaufixBaba",
+  "authors": [
+    "RaufixBaba"
+  ],
+  "contact": {
+    "homepage": "https://github.com/RaufixBaba/RaufixVoiceChanger",
+    "sources": "https://github.com/RaufixBaba/RaufixVoiceChanger",
+    "issues": "https://github.com/RaufixBaba/RaufixVoiceChanger/issues"
+  },
+  "license": "Apache-2.0",
+  "icon": "assets/raufix-voice-changer/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.raufixbaba.voicechanger.RaufixVoiceChangerFabricMain"
+    ],
+    "client": [
+      "com.raufixbaba.voicechanger.client.RaufixVoiceChangerClient"
+    ],
+    "voicechat": [
+      "com.raufixbaba.voicechanger.integration.SimpleVoiceChatPlugin"
+    ]
+  },
+  "mixins": [
+    "raufix-voice-changer.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "~${minecraft_version}",
+    "java": ">=21",
+    "voicechat": ">=1.21.11-2.6.0"
+  }
+}
